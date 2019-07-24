@@ -4,6 +4,7 @@
   "description": "A NES emulator written in TypeScript.",
   "main": "index.js",
   "scripts": {
+    "build": "tsc src/index.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
