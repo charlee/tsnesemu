@@ -4,12 +4,13 @@
   "description": "A NES emulator written in TypeScript.",
   "main": "index.js",
   "scripts": {
-    "build": "tsc src/index.ts",
+    "build": "webpack",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "ts-loader": "^6.0.4",
     "typescript": "^3.5.3",
     "webpack": "^4.37.0",
     "webpack-cli": "^3.3.6"
