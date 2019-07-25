@@ -33,7 +33,7 @@ enum AddrMode {
     ABSOLUTE_Y,         // OPC $LLHH,Y  operand is address; effective address is address incremented by Y with carry **
 }
 
-type OpCodeFunc = (oper: number) => number;
+type OpCodeFunc = (oper: number, addr: number) => number;
 
 type OpCodeInfo = {
   opc: Byte; // opcode
@@ -59,7 +59,7 @@ class CPU {
   private V: Flag = 0; // Flag: Overflow
   private B5: Flag = 0; // Flag: Break bit 5
   private B4: Flag = 0; // Flag: Break bit 4
-  private D: Flag = 0;  // Flag: Decimal (not used)
+  private D: Flag = 0; // Flag: Decimal (not used)
   private I: Flag = 0; // Flag: Interrupt
   private Z: Flag = 0; // Flag: Zero
   private C: Flag = 0; // Flag: Carry
@@ -96,7 +96,7 @@ class CPU {
     const [oper, cycleAdd1] = this.address(addr, arg);
 
     this.PC += bytes;
-    const cycleAdd2 = op(oper) || 0;
+    const cycleAdd2 = op(oper, addr);
 
     return cycles + cycleAdd1 + cycleAdd2;
   }
@@ -191,6 +191,40 @@ class CPU {
     this.addOpCode(this.CPY, 0xc0, 2, 2, AddrMode.IMMEDIATE);
     this.addOpCode(this.CPY, 0xc4, 2, 3, AddrMode.ZEROPAGE);
     this.addOpCode(this.CPY, 0xcc, 3, 4, AddrMode.ABSOLUTE);
+
+    // DEC: Decrement Memory by One
+    this.addOpCode(this.DEC, 0xc6, 2, 5, AddrMode.ZEROPAGE);
+    this.addOpCode(this.DEC, 0xd6, 2, 6, AddrMode.ZEROPAGE_X);
+    this.addOpCode(this.DEC, 0xce, 3, 3, AddrMode.ABSOLUTE);
+    this.addOpCode(this.DEC, 0xde, 3, 7, AddrMode.ABSOLUTE_X);
+
+    // DEX: Decrement Index X by One
+    this.addOpCode(this.DEX, 0xca, 1, 2, AddrMode.IMPLIED);
+
+    // DEY: Decrement Index Y by One
+    this.addOpCode(this.DEY, 0x88, 1, 2, AddrMode.IMPLIED);
+
+    // EOR: Exclusive-OR Memory with Accumulator
+    this.addOpCode(this.EOR, 0x49, 2, 2, AddrMode.IMMEDIATE);
+    this.addOpCode(this.EOR, 0x45, 2, 3, AddrMode.ZEROPAGE);
+    this.addOpCode(this.EOR, 0x55, 2, 4, AddrMode.ZEROPAGE_X);
+    this.addOpCode(this.EOR, 0x4d, 3, 4, AddrMode.ABSOLUTE);
+    this.addOpCode(this.EOR, 0x5d, 3, 4, AddrMode.ABSOLUTE_X);
+    this.addOpCode(this.EOR, 0x59, 3, 4, AddrMode.ABSOLUTE_Y);
+    this.addOpCode(this.EOR, 0x41, 2, 6, AddrMode.X_INDIRECT);
+    this.addOpCode(this.EOR, 0x51, 2, 5, AddrMode.INDIRECT_Y);
+
+    // INC: Increment Memory by One
+    this.addOpCode(this.INC, 0xe6, 2, 5, AddrMode.ZEROPAGE);
+    this.addOpCode(this.INC, 0xf6, 2, 6, AddrMode.ZEROPAGE_X);
+    this.addOpCode(this.INC, 0xee, 3, 3, AddrMode.ABSOLUTE);
+    this.addOpCode(this.INC, 0xfe, 3, 7, AddrMode.ABSOLUTE_X);
+
+    // INX: Decrement Index X by One
+    this.addOpCode(this.INX, 0xe8, 1, 2, AddrMode.IMPLIED);
+
+    // INY: Decrement Index Y by One
+    this.addOpCode(this.INY, 0xc8, 1, 2, AddrMode.IMPLIED);
   }
 
   addOpCode(op: OpCodeFunc, opc: Byte, addr: AddrMode, bytes: number, cycles: number) {
@@ -436,20 +470,20 @@ class CPU {
     this.mem[this.SP] = value;
     this.SP--;
     this.SP = (this.SP & 0xff) | 0x0100;
-  }
+  };
 
   packSR = (): Byte => {
     return (
       this.C |
-      this.Z << 1 |
-      this.I << 2 |
-      this.D << 3 |
-      this.B4 << 4 | 
-      this.B5 << 5 |
-      this.V << 6 |
-      this.N << 7
+      (this.Z << 1) |
+      (this.I << 2) |
+      (this.D << 3) |
+      (this.B4 << 4) |
+      (this.B5 << 5) |
+      (this.V << 6) |
+      (this.N << 7)
     );
-  }
+  };
 
   /**
    * Force Break
@@ -460,7 +494,7 @@ class CPU {
     this.I = 1;
 
     return 0;
-  }
+  };
 
   /**
    * Branch on Overflow Clear
@@ -471,7 +505,7 @@ class CPU {
     }
 
     return 0;
-  }
+  };
 
   /**
    * Branch on Overflow Set
@@ -482,7 +516,7 @@ class CPU {
     }
 
     return 0;
-  }
+  };
 
   /**
    * Clear Carry Flag
@@ -490,7 +524,7 @@ class CPU {
   CLC: OpCodeFunc = oper => {
     this.C = 0;
     return 0;
-  }
+  };
 
   /**
    * Clear Decimal Mode
@@ -498,7 +532,7 @@ class CPU {
   CLD: OpCodeFunc = oper => {
     this.D = 0;
     return 0;
-  }
+  };
 
   /**
    * Clear Interrupt Disable Bit
@@ -506,7 +540,7 @@ class CPU {
   CLI: OpCodeFunc = oper => {
     this.I = 0;
     return 0;
-  }
+  };
 
   /**
    * Clear Overflow Flag
@@ -514,47 +548,116 @@ class CPU {
   CLV: OpCodeFunc = oper => {
     this.V = 0;
     return 0;
-  }
+  };
 
   /**
    * Compare Memory with Accumulator
    */
   CMP: OpCodeFunc = oper => {
     const result = this.A - oper;
-    this.C = (result >= 0) ? 1 : 0;
+    this.C = result >= 0 ? 1 : 0;
     this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
     this.Z = (result & 0xff) === 0 ? 1 : 0;
     return 0;
-  }
+  };
 
   /**
    * Compare Memory and Index X
    */
   CPX: OpCodeFunc = oper => {
     const result = this.X - oper;
-    this.C = (result >= 0) ? 1 : 0;
+    this.C = result >= 0 ? 1 : 0;
     this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
     this.Z = (result & 0xff) === 0 ? 1 : 0;
     return 0;
-  }
+  };
 
   /**
    * Compare Memory and Index Y
    */
   CPY: OpCodeFunc = oper => {
     const result = this.Y - oper;
-    this.C = (result >= 0) ? 1 : 0;
+    this.C = result >= 0 ? 1 : 0;
     this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
     this.Z = (result & 0xff) === 0 ? 1 : 0;
     return 0;
-  }
+  };
 
   /**
    * Decrement Memory by One
    */
-  // DEC: OpCodeFunc = oper => {
+  DEC: OpCodeFunc = (oper, addr) => {
+    const result = oper - 1;
+    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
+    this.Z = (result & 0xff) === 0 ? 1 : 0;
+    this.mem[addr] = result & 0xff;
+    return 0;
+  };
 
-  // }
+  /**
+   * Decrement Index X by One
+   */
+  DEX: OpCodeFunc = () => {
+    const result = this.X - 1;
+    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
+    this.Z = (result & 0xff) === 0 ? 1 : 0;
+    this.X = result & 0xff;
+    return 0;
+  };
+
+  /**
+   * Decrement Index Y by One
+   */
+  DEY: OpCodeFunc = () => {
+    const result = this.Y - 1;
+    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
+    this.Z = (result & 0xff) === 0 ? 1 : 0;
+    this.Y = result & 0xff;
+    return 0;
+  };
+
+  /**
+   * Exclusive-OR Memory with Accumulator
+   */
+  EOR: OpCodeFunc = oper => {
+
+    // TODO
+
+    return 0;
+  }
+
+  /**
+   * Increment Memory by One
+   */
+  INC: OpCodeFunc = (oper, addr) => {
+    const result = oper + 1;
+    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
+    this.Z = (result & 0xff) === 0 ? 1 : 0;
+    this.mem[addr] = result & 0xff;
+    return 0;
+  }
+
+  /**
+   * Increment Index X by One
+   */
+  INX: OpCodeFunc = () => {
+    const result = this.X + 1;
+    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
+    this.Z = (result & 0xff) === 0 ? 1 : 0;
+    this.X = result & 0xff;
+    return 0;
+  }
+
+  /**
+   * Increment Index X by One
+   */
+  INY: OpCodeFunc = () => {
+    const result = this.Y + 1;
+    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
+    this.Z = (result & 0xff) === 0 ? 1 : 0;
+    this.Y = result & 0xff;
+    return 0;
+  }
 }
 
 export default CPU;
