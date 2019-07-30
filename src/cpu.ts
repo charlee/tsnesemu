@@ -1,3 +1,5 @@
+import { thisExpression } from "@babel/types";
+
 /**
  *
  *
@@ -123,7 +125,7 @@ class CPU {
     this.addOpCode(this.AND, 0x31, 2, 5, AddrMode.INDIRECT_Y);
 
     // ASL: Shift Left One Bit (Memory or Accumulator)
-    this.addOpCode(this.ASL, 0x0a, 1, 2, AddrMode.ACCUMULATOR);
+    this.addOpCode(this.ASL_a, 0x0a, 1, 2, AddrMode.ACCUMULATOR);
     this.addOpCode(this.ASL, 0x06, 2, 5, AddrMode.ZEROPAGE);
     this.addOpCode(this.ASL, 0x16, 2, 6, AddrMode.ZEROPAGE_X);
     this.addOpCode(this.ASL, 0x0e, 3, 6, AddrMode.ABSOLUTE);
@@ -225,12 +227,49 @@ class CPU {
 
     // INY: Decrement Index Y by One
     this.addOpCode(this.INY, 0xc8, 1, 2, AddrMode.IMPLIED);
+
+    // JMP: Jump to New Location
+    this.addOpCode(this.JMP, 0x4c, 3, 3, AddrMode.ABSOLUTE);
+    this.addOpCode(this.JMP, 0x6c, 3, 5, AddrMode.INDIRECT);
+
+    // JSR: Jump to New Location Saving Return Address
+    this.addOpCode(this.JSR, 0x20, 3, 6, AddrMode.ABSOLUTE);
+
+    // LDA: Load Accumulator with Memory
+    this.addOpCode(this.LDA, 0xa9, 2, 2, AddrMode.IMMEDIATE);
+    this.addOpCode(this.LDA, 0xa5, 2, 3, AddrMode.ZEROPAGE);
+    this.addOpCode(this.LDA, 0xb5, 2, 4, AddrMode.ZEROPAGE_X);
+    this.addOpCode(this.LDA, 0xad, 3, 4, AddrMode.ABSOLUTE);
+    this.addOpCode(this.LDA, 0xbd, 3, 4, AddrMode.ABSOLUTE_X);
+    this.addOpCode(this.LDA, 0xb9, 3, 4, AddrMode.ABSOLUTE_Y);
+    this.addOpCode(this.LDA, 0xa1, 2, 6, AddrMode.X_INDIRECT);
+    this.addOpCode(this.LDA, 0xb1, 2, 5, AddrMode.INDIRECT_Y);
+
+    // LDX: Load Index X with Memory
+    this.addOpCode(this.LDX, 0xa2, 2, 2, AddrMode.IMMEDIATE);
+    this.addOpCode(this.LDX, 0xa6, 2, 3, AddrMode.ZEROPAGE);
+    this.addOpCode(this.LDX, 0xb6, 2, 4, AddrMode.ZEROPAGE_Y);
+    this.addOpCode(this.LDX, 0xae, 3, 4, AddrMode.ABSOLUTE);
+    this.addOpCode(this.LDX, 0xbe, 3, 4, AddrMode.ABSOLUTE_Y);
+
+    // LDY: Load Index Y with Memory
+    this.addOpCode(this.LDY, 0xa0, 2, 2, AddrMode.IMMEDIATE);
+    this.addOpCode(this.LDY, 0xa4, 2, 3, AddrMode.ZEROPAGE);
+    this.addOpCode(this.LDY, 0xb4, 2, 4, AddrMode.ZEROPAGE_X);
+    this.addOpCode(this.LDY, 0xac, 3, 4, AddrMode.ABSOLUTE);
+    this.addOpCode(this.LDY, 0xbc, 3, 4, AddrMode.ABSOLUTE_X);
+
+    // LSR: Shift One Bit Right (Memory or Accumulator)
+    this.addOpCode(this.LSR_a, 0x4a, 1, 2, AddrMode.ACCUMULATOR);
+    this.addOpCode(this.LSR, 0x46, 2, 5, AddrMode.ZEROPAGE);
+    this.addOpCode(this.LSR, 0x56, 2, 6, AddrMode.ZEROPAGE_X);
+    this.addOpCode(this.LSR, 0x4e, 3, 6, AddrMode.ABSOLUTE);
+    this.addOpCode(this.LSR, 0x5e, 3, 7, AddrMode.ABSOLUTE_X);
   }
 
   addOpCode(op: OpCodeFunc, opc: Byte, addr: AddrMode, bytes: number, cycles: number) {
     this.opCodeMap[opc] = { op, opc, addr, bytes, cycles };
   }
-
   /**
    * Addressing.
    * Based on given address mode, fetch the operand part of the instruction with PC,
@@ -337,9 +376,7 @@ class CPU {
     // Compute overflow flag
     // cite: http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
     this.V = ((result ^ oper) & (this.A ^ oper) & 0x80) > 0 ? 1 : 0;
-    this.N = (result & 0x80) > 0 ? 1 : 0;
-    this.Z = result === 0 ? 1 : 0;
-
+    this.setNZ(result)
     this.A = result;
 
     return 0;
@@ -349,29 +386,30 @@ class CPU {
    * AND Memory with Accumulator
    */
   AND: OpCodeFunc = oper => {
-    let result = this.A & oper;
-    this.N = (result & 0x80) > 0 ? 1 : 0;
-    this.Z = result === 0 ? 1 : 0;
-
-    this.A = result;
-
+    this.A = this.A & oper;
+    this.setNZ(this.A);
     return 0;
   };
 
   /**
    * Shift Left One Bit (Memory or Accumulator)
    */
-  ASL: OpCodeFunc = oper => {
+  ASL_a: OpCodeFunc = () => {
     let result = this.A << 1;
     this.C = result > 0xff ? 1 : 0;
-    result = result & 0xff;
-    this.N = (result & 0x80) > 0 ? 1 : 0;
-    this.Z = result === 0 ? 1 : 0;
-
-    this.A = result;
-
+    this.A = result & 0xff;
+    this.setNZ(this.A);
     return 0;
   };
+
+  ASL: OpCodeFunc = (oper, addr) => {
+    let result = oper << 1;
+    this.C = result > 0xff ? 1 : 0;
+    result = result & 0xff;
+    this.setNZ(result);
+    this.mem[addr] = result;
+    return 0;
+  }
 
   /**
    * Branch.
@@ -426,9 +464,8 @@ class CPU {
    */
   BIT: OpCodeFunc = oper => {
     const result = this.A & oper;
-    this.Z = result === 0 ? 1 : 0;
-    this.N = (result & 0x80) === 1 ? 1 : 0;
     this.V = (result & 0x40) === 1 ? 1 : 0;
+    this.setNZ(result);
 
     return 0;
   };
@@ -470,6 +507,11 @@ class CPU {
     this.mem[this.SP] = value;
     this.SP--;
     this.SP = (this.SP & 0xff) | 0x0100;
+  };
+
+  setNZ = (result: Byte) => {
+    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
+    this.Z = (result & 0xff) === 0 ? 1 : 0;
   };
 
   packSR = (): Byte => {
@@ -556,8 +598,7 @@ class CPU {
   CMP: OpCodeFunc = oper => {
     const result = this.A - oper;
     this.C = result >= 0 ? 1 : 0;
-    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
-    this.Z = (result & 0xff) === 0 ? 1 : 0;
+    this.setNZ(result);
     return 0;
   };
 
@@ -567,8 +608,7 @@ class CPU {
   CPX: OpCodeFunc = oper => {
     const result = this.X - oper;
     this.C = result >= 0 ? 1 : 0;
-    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
-    this.Z = (result & 0xff) === 0 ? 1 : 0;
+    this.setNZ(result);
     return 0;
   };
 
@@ -578,8 +618,7 @@ class CPU {
   CPY: OpCodeFunc = oper => {
     const result = this.Y - oper;
     this.C = result >= 0 ? 1 : 0;
-    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
-    this.Z = (result & 0xff) === 0 ? 1 : 0;
+    this.setNZ(result);
     return 0;
   };
 
@@ -587,10 +626,8 @@ class CPU {
    * Decrement Memory by One
    */
   DEC: OpCodeFunc = (oper, addr) => {
-    const result = oper - 1;
-    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
-    this.Z = (result & 0xff) === 0 ? 1 : 0;
-    this.mem[addr] = result & 0xff;
+    const result = (oper - 1) & 0xff;
+    this.setNZ(result);
     return 0;
   };
 
@@ -598,10 +635,8 @@ class CPU {
    * Decrement Index X by One
    */
   DEX: OpCodeFunc = () => {
-    const result = this.X - 1;
-    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
-    this.Z = (result & 0xff) === 0 ? 1 : 0;
-    this.X = result & 0xff;
+    this.X = (this.X - 1) & 0xff;
+    this.setNZ(this.X);
     return 0;
   };
 
@@ -609,10 +644,8 @@ class CPU {
    * Decrement Index Y by One
    */
   DEY: OpCodeFunc = () => {
-    const result = this.Y - 1;
-    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
-    this.Z = (result & 0xff) === 0 ? 1 : 0;
-    this.Y = result & 0xff;
+    this.Y = (this.Y - 1) & 0xff;
+    this.setNZ(this.Y);
     return 0;
   };
 
@@ -620,44 +653,105 @@ class CPU {
    * Exclusive-OR Memory with Accumulator
    */
   EOR: OpCodeFunc = oper => {
-
     // TODO
 
     return 0;
-  }
+  };
 
   /**
    * Increment Memory by One
    */
   INC: OpCodeFunc = (oper, addr) => {
-    const result = oper + 1;
-    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
-    this.Z = (result & 0xff) === 0 ? 1 : 0;
-    this.mem[addr] = result & 0xff;
+    const result = (oper + 1) & 0xff;
+    this.setNZ(result);
+    this.mem[addr] = result;
     return 0;
-  }
+  };
 
   /**
    * Increment Index X by One
    */
   INX: OpCodeFunc = () => {
-    const result = this.X + 1;
-    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
-    this.Z = (result & 0xff) === 0 ? 1 : 0;
-    this.X = result & 0xff;
+    this.X = (this.X + 1) & 0xff;
+    this.setNZ(this.X);
     return 0;
-  }
+  };
 
   /**
    * Increment Index X by One
    */
   INY: OpCodeFunc = () => {
-    const result = this.Y + 1;
-    this.N = ((result >> 7) & 1) === 1 ? 1 : 0;
-    this.Z = (result & 0xff) === 0 ? 1 : 0;
-    this.Y = result & 0xff;
+    this.Y = (this.Y + 1) & 0xff;
+    this.setNZ(this.Y);
+    return 0;
+  };
+
+  /**
+   * Jump to New Location
+   */
+  JMP: OpCodeFunc = oper => {
+    this.PC = oper;
+    return 0;
+  };
+
+  /**
+   * Jump to New Location Saving Return Address
+   */
+  JSR: OpCodeFunc = oper => {
+    this.push((this.PC >> 8) & 0xff);
+    this.push(this.PC & 0xff);
+    this.PC = oper;
+    return 0;
+  };
+
+  /**
+   * Load Accumulator with Memory
+   */
+  LDA: OpCodeFunc = oper => {
+    this.A = oper;
+    this.setNZ(this.A);
     return 0;
   }
+
+  /**
+   * Load Index X with Memory
+   */
+  LDX: OpCodeFunc = oper => {
+    this.X = oper;
+    this.setNZ(this.X);
+    return 0;
+  }
+
+  /**
+   * Load Index Y with Memory
+   */
+  LDY: OpCodeFunc = oper => {
+    this.Y = oper;
+    this.setNZ(this.Y);
+    return 0;
+  }
+
+  /**
+   * Shift One Bit Right (Accumulator)
+   */
+  LSR_a: OpCodeFunc = () => {
+    this.C = (this.A & 0x01) ? 1 : 0;
+    this.A = this.A >> 1;
+    this.setNZ(this.A);
+    return 0;
+  }
+
+  /**
+   * Shift One Bit Right (Memory)
+   */
+  LSR: OpCodeFunc = (oper, addr) => {
+    this.C = (oper & 0x01) ? 1 : 0;
+    const result = oper >> 1;
+    this.setNZ(result);
+    this.mem[addr] = result;
+    return 0;kkk
+  }
+
 }
 
 export default CPU;
